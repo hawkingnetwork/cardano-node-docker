@@ -6,13 +6,14 @@
 
 Check the [releases](https://github.com/hawkingnetwork/cardano-node-docker/releases) for the latest version.
 
-````console
+```console
 git clone \
   --single-branch \
   --branch <VERSION> \
   --recurse-submodules \
   https://github.com/hawkingnetwork/cardano-node-docker.git \
   && cd cardano-node-docker
+```
 
 ## Build and Run via Docker Compose
 
@@ -20,7 +21,7 @@ git clone \
 
 ```console
 bash build.sh
-````
+```
 
 2. Run docker
 
