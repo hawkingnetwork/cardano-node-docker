@@ -10,9 +10,9 @@ Check the [releases](https://github.com/hawkingnetwork/cardano-node-docker/relea
 git clone \
   --single-branch \
   --branch <VERSION> \
-  --recurse-submodules \
   https://github.com/hawkingnetwork/cardano-node-docker.git \
-  && cd cardano-node-docker
+  && cd cardano-node-docker \
+  && git submodule update --init --recursive
 ```
 
 ## Build and Run via Docker Compose
