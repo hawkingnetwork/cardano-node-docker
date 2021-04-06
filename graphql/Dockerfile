@@ -1,0 +1,83 @@
+ARG UBUNTU_VERSION=20.04
+FROM ubuntu:${UBUNTU_VERSION} as ubuntu-nodejs
+ARG NODEJS_MAJOR_VERSION=14
+ENV DEBIAN_FRONTEND=nonintercative
+RUN apt-get update && apt-get install curl -y &&\
+  curl --proto '=https' --tlsv1.2 -sSf -L https://deb.nodesource.com/setup_${NODEJS_MAJOR_VERSION}.x | bash - &&\
+  apt-get install nodejs -y
+
+FROM ubuntu-nodejs as nodejs-builder
+RUN curl --proto '=https' --tlsv1.2 -sSf -L https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - &&\
+  echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list &&\
+  apt-get update && apt-get install gcc g++ make gnupg2 yarn -y
+RUN mkdir -p /app/packages
+WORKDIR /app
+COPY cardano-graphql/packages-cache packages-cache
+COPY cardano-graphql/packages/api-cardano-db-hasura packages/api-cardano-db-hasura
+COPY cardano-graphql/packages/server packages/server
+COPY cardano-graphql/packages/util packages/util
+COPY cardano-graphql/packages/util-dev packages/util-dev
+COPY \
+  cardano-graphql/.yarnrc \
+  cardano-graphql/package.json \
+  cardano-graphql/yarn.lock \
+  cardano-graphql/tsconfig.json \
+  /app/
+
+FROM nodejs-builder as cardano-graphql-builder
+RUN yarn --offline --frozen-lockfile --non-interactive &&\
+   yarn build
+
+FROM nodejs-builder as cardano-graphql-production-deps
+RUN yarn --offline --frozen-lockfile --non-interactive --production
+
+FROM frolvlad/alpine-glibc:alpine-3.11_glibc-2.30 as downloader
+RUN apk add curl
+RUN curl --proto '=https' --tlsv1.2 -sSf -L https://github.com/hasura/graphql-engine/raw/stable/cli/get.sh | sh
+ENV HASURA_GRAPHQL_ENABLE_TELEMETRY=false
+RUN hasura --skip-update-check update-cli --version v1.3.3
+
+FROM ubuntu-nodejs as server
+RUN curl --proto '=https' --tlsv1.2 -sSf -L https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - &&\
+  echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -cs`-pgdg main" | tee  /etc/apt/sources.list.d/pgdg.list &&\
+  apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates \
+  jq
+COPY --from=naviocean/cardano-node:latest /usr/local/lib /usr/local/lib
+COPY --from=naviocean/cardano-node:latest /cardano/bin/cardano-cli /usr/local/bin/
+COPY --from=downloader /usr/local/bin/hasura /usr/local/bin/hasura
+
+ENV \
+  CARDANO_CLI_PATH=/usr/local/bin/cardano-cli \
+  CARDANO_NODE_SOCKET_PATH=/node-ipc/node.socket \
+  HASURA_CLI_PATH=/usr/local/bin/hasura \
+  JQ_PATH=/usr/bin/jq \
+  LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH" \
+  POSTGRES_DB_FILE=/run/secrets/postgres_db \
+  POSTGRES_HOST=postgres \
+  POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password \
+  POSTGRES_PORT=5432 \
+  POSTGRES_USER_FILE=/run/secrets/postgres_user
+
+COPY --from=cardano-graphql-builder /app/packages/api-cardano-db-hasura/dist /app/packages/api-cardano-db-hasura/dist
+COPY --from=cardano-graphql-builder /app/packages/api-cardano-db-hasura/hasura/project /app/packages/api-cardano-db-hasura/hasura/project
+COPY --from=cardano-graphql-builder /app/packages/api-cardano-db-hasura/package.json /app/packages/api-cardano-db-hasura/package.json
+COPY --from=cardano-graphql-builder /app/packages/api-cardano-db-hasura/schema.graphql /app/packages/api-cardano-db-hasura/schema.graphql
+COPY --from=cardano-graphql-builder /app/packages/server/dist /app/packages/server/dist
+COPY --from=cardano-graphql-builder /app/packages/server/package.json /app/packages/server/package.json
+COPY --from=cardano-graphql-builder /app/packages/util/dist /app/packages/util/dist
+COPY --from=cardano-graphql-builder /app/packages/util/package.json /app/packages/util/package.json
+COPY --from=cardano-graphql-production-deps /app/node_modules /app/node_modules
+COPY --from=cardano-graphql-production-deps /app/packages/api-cardano-db-hasura/node_modules /app/packages/api-cardano-db-hasura/node_modules
+
+
+
+RUN mkdir /node-ipc /configs
+
+WORKDIR /app/packages/server/dist
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 3100
+
+CMD ["/entrypoint.sh"]

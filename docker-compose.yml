@@ -1,0 +1,193 @@
+version: "3.5"
+
+services:
+  cardano-node:
+    image: naviocean/cardano-node:latest
+    networks: [cardano]
+    restart: on-failure
+    stop_signal: SIGINT
+    stop_grace_period: 10s
+    ports:
+      - 3001:3001
+      - 12798:12798
+    volumes:
+      - type: volume
+        source: node-ipc
+        target: /cardano/socket
+      - type: volume
+        source: node-data
+        target: /cardano/db
+      - type: bind
+        source: ./configs
+        target: /cardano/configs
+        read_only: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "10"
+    environment:
+      - HOSTNAME=explorer.hawking.network
+      - NETWORK=testnet
+      - CNODE_PORT=3001
+    command: ["start-relay.sh"]
+
+  cardano-monitor:
+    image: naviocean/cardano-monitor:latest
+    depends_on:
+      - cardano-node
+    ports:
+      - 9090:9090
+    volumes:
+      - type: volume
+        source: monitor-db
+        target: /cardano/data
+    networks: [cardano]
+    restart: on-failure
+    stop_grace_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+    environment:
+      - WEB_PORT:9090
+    command: ["start-monitoring.sh"]
+
+  postgres:
+    image: postgres:13-alpine
+    ports:
+      - 5432:5432
+    secrets:
+      - postgres_db
+      - postgres_password
+      - postgres_user
+    shm_size: "2gb"
+    volumes:
+      - type: volume
+        source: postgres-data
+        target: /var/lib/postgresql/data
+    networks: [cardano]
+    restart: on-failure
+    environment:
+      - POSTGRES_LOGGING=true
+      - POSTGRES_DB_FILE=/run/secrets/postgres_db
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - POSTGRES_USER_FILE=/run/secrets/postgres_user
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  cardano-db-sync:
+    image: inputoutput/cardano-db-sync:${CARDANO_DB_SYNC_VERSION:-9.0.0}
+    command:
+      [
+        "--config",
+        "/config/cardano-db-sync/config.json",
+        "--socket-path",
+        "/node-ipc/node.socket",
+        "--state-dir",
+        "/data",
+      ]
+    depends_on:
+      - cardano-node
+      - postgres
+    secrets:
+      - postgres_password
+      - postgres_user
+      - postgres_db
+    volumes:
+      - type: bind
+        source: ./configs/${NETWORK:-testnet}/${NETWORK:-testnet}-db-sync-config.json
+        target: /config/cardano-db-sync/config.json
+      - type: volume
+        source: db-sync-data
+        target: /data
+      - type: volume
+        source: node-ipc
+        target: /node-ipc
+    networks: [cardano]
+    restart: on-failure
+    environment:
+      - EXTENDED=true
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - NETWORK=testnet
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  hasura:
+    image: naviocean/cardano-graphql-hasura:latest
+    ports:
+      - 8080:8080
+    depends_on:
+      - postgres
+    networks: [cardano]
+    restart: on-failure
+    secrets:
+      - postgres_db
+      - postgres_password
+      - postgres_user
+    environment:
+      - HASURA_GRAPHQL_ENABLE_CONSOLE=true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  cardano-graphql:
+    image: naviocean/cardano-graphql:latest
+    ports:
+      - 3100:3100
+    depends_on:
+      - postgres
+      - cardano-node
+    volumes:
+      - type: volume
+        source: node-ipc
+        target: /node-ipc
+      - type: bind
+        source: ./configs
+        target: /configs
+        read_only: true
+    restart: on-failure
+    networks: [cardano]
+    secrets:
+      - postgres_db
+      - postgres_password
+      - postgres_user
+    environment:
+      - NETWORK=testnet
+      - METADATA_SERVER_URI=https://tokens.cardano.org
+      - HASURA_URI=http://hasura:8080
+      - ALLOW_INTROSPECTION=true
+      - CACHE_ENABLED=true
+      - LOGGER_MIN_SEVERITY=${LOGGER_MIN_SEVERITY:-info}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+secrets:
+  postgres_db:
+    file: ./configs/secrets/postgres_db
+  postgres_password:
+    file: ./configs/secrets/postgres_password
+  postgres_user:
+    file: ./configs/secrets/postgres_user
+volumes:
+  node-data: {}
+  node-ipc: {}
+  monitor-db: {}
+  postgres-data: {}
+  db-sync-data: {}
+networks:
+  cardano:
+    driver: bridge
