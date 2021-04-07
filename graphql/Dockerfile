@@ -1,28 +1,24 @@
 ARG UBUNTU_VERSION=20.04
+
 FROM ubuntu:${UBUNTU_VERSION} as ubuntu-nodejs
 ARG NODEJS_MAJOR_VERSION=14
 ENV DEBIAN_FRONTEND=nonintercative
 RUN apt-get update && apt-get install curl -y &&\
   curl --proto '=https' --tlsv1.2 -sSf -L https://deb.nodesource.com/setup_${NODEJS_MAJOR_VERSION}.x | bash - &&\
-  apt-get install nodejs -y
+  apt-get install nodejs git -y
+
 
 FROM ubuntu-nodejs as nodejs-builder
 RUN curl --proto '=https' --tlsv1.2 -sSf -L https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - &&\
   echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list &&\
   apt-get update && apt-get install gcc g++ make gnupg2 yarn -y
-RUN mkdir -p /app/packages
+  
+ARG RELEASE=4.0.0
+RUN git clone https://github.com/input-output-hk/cardano-graphql.git /app
 WORKDIR /app
-COPY cardano-graphql/packages-cache packages-cache
-COPY cardano-graphql/packages/api-cardano-db-hasura packages/api-cardano-db-hasura
-COPY cardano-graphql/packages/server packages/server
-COPY cardano-graphql/packages/util packages/util
-COPY cardano-graphql/packages/util-dev packages/util-dev
-COPY \
-  cardano-graphql/.yarnrc \
-  cardano-graphql/package.json \
-  cardano-graphql/yarn.lock \
-  cardano-graphql/tsconfig.json \
-  /app/
+RUN git fetch --all --tags
+RUN git tag
+RUN git checkout tags/${RELEASE}
 
 FROM nodejs-builder as cardano-graphql-builder
 RUN yarn --offline --frozen-lockfile --non-interactive &&\
