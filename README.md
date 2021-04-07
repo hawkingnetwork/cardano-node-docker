@@ -11,8 +11,7 @@ git clone \
   --single-branch \
   --branch <VERSION> \
   https://github.com/hawkingnetwork/cardano-node-docker.git \
-  && cd cardano-node-docker \
-  && git submodule update --init --recursive
+  && cd cardano-node-docker
 ```
 
 ## Build and Run via Docker Compose
@@ -23,7 +22,10 @@ git clone \
 bash build.sh
 ```
 
-2. Run docker
+2. Config Explorer
+   Change your server's IP in line 184 `- GRAPHQL_API_HOST=192.168.1.219`
+
+3. Run docker
 
 ```console
 docker-compose up -d && docker-compose logs -f

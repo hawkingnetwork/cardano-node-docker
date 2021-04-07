@@ -1,6 +1,0 @@
-[submodule "graphql/cardano-graphql"]
-	path = graphql/cardano-graphql
-	url = https://github.com/input-output-hk/cardano-graphql.git
-[submodule "explorer/app"]
-	path = explorer/app
-	url = https://github.com/input-output-hk/cardano-explorer-app.git

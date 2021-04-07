@@ -9,7 +9,6 @@ services:
     stop_grace_period: 10s
     ports:
       - 3001:3001
-      - 12798:12798
     volumes:
       - type: volume
         source: node-ipc
@@ -56,8 +55,6 @@ services:
 
   postgres:
     image: postgres:13-alpine
-    ports:
-      - 5432:5432
     secrets:
       - postgres_db
       - postgres_password
@@ -123,8 +120,6 @@ services:
 
   hasura:
     image: naviocean/cardano-graphql-hasura:latest
-    ports:
-      - 8080:8080
     depends_on:
       - postgres
     networks: [cardano]
@@ -175,6 +170,27 @@ services:
         max-size: "200k"
         max-file: "10"
 
+  cardano-explorer:
+    image: naviocean/cardano-explorer:latest
+    depends_on:
+      - cardano-graphql
+    ports:
+      - 4000:4000
+    networks: [cardano]
+    restart: on-failure
+    environment:
+      - CARDANO_NETWORK=testnet
+      - GRAPHQL_API_PROTOCOL=http
+      - GRAPHQL_API_HOST=192.168.1.219
+      - GRAPHQL_API_PORT=3100
+      - GRAPHQL_API_PATH=graphql
+      - DEBUG=true
+      - PORT=4000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
 secrets:
   postgres_db:
     file: ./configs/secrets/postgres_db
